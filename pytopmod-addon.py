@@ -130,7 +130,6 @@ def bpy_to_dlfl(bm = None):
     for v in bm.verts:
         verts[v.index] = mesh.create_vertex(v.co)    
     
-    i = 0
     for f in bm.faces:
         faces[f.index] = mesh.create_face()
     for f in bm.faces:
@@ -172,6 +171,96 @@ def dlfl_to_bpy(mesh):
     new_mesh.update()
     return new_mesh
 
+def bpy_to_dcel(bm = None):
+    """
+    Creates a DCEL mesh from the selected object in the viewport
+    :return mesh: DCEL mesh.
+    :return bm: BMesh object of the selected object.
+    :return verts: Dictionary of vertex indices to DLFL vertex_key.
+    :return faces: Dictionary of faces indices to DLFL face_key.
+    """
+    from pytopmod.core.dcel import mesh as dcel_mesh
+
+    bpy_object = bpy.context.object
+    bpy_mesh = bpy.context.object.data
+    if (bm == None):
+        if(bpy.context.object.mode == 'EDIT'):
+            bm = bmesh.from_edit_mesh(bpy_mesh)
+        if(bpy.context.object.mode == 'OBJECT'):
+            bm = bmesh.new()
+            bm.from_mesh(bpy_mesh)
+    
+
+    mesh = dcel_mesh.Mesh()
+    bm.verts.ensure_lookup_table()
+    faces = {}
+    verts = {}
+    for v in bm.verts:
+        verts[v.index] = mesh.create_vertex(v.co)
+
+    for f in bm.faces:
+        faces[f.index] = mesh.create_face()
+
+    edges = {}
+    for e in bm.edges:
+        edges[e.index] = mesh.edge_keys.new()
+
+    for e in bm.edges:
+        f1 = None
+        f2 = None
+        e1 = None
+        e2 = None
+        
+        mesh.edge_nodes[edges[e.index]] = dcel_mesh.EdgeNode(verts[e.link_loops[1].vert.index],
+                                                             verts[e.link_loops[0].vert.index],
+                                                             faces[e.link_loops[1].face.index],
+                                                             faces[e.link_loops[0].face.index],
+                                                             edges[e.link_loops[1].link_loop_prev.edge.index],
+                                                             edges[e.link_loops[0].link_loop_prev.edge.index]
+                                                             )
+        
+    return mesh, bm, edges
+
+def dcel_to_bpy(mesh):
+    """
+    Creates a Blender Mesh Data from the DCEL mesh 
+    :param mesh: DCEL mesh.
+    :return new_mesh: Blender Mesh Data.
+    """
+    from pytopmod.core.dcel import operators
+    vertex_index_map = {}
+    obj_vertices = []
+    for index, vertex in enumerate(mesh.vertex_keys):
+        vertex_index_map[vertex] = index
+        coordinates = (coord for coord in mesh.vertex_coordinates[vertex])
+        obj_vertices.append(coordinates)
+        
+    obj_faces = []
+    for face in mesh.face_keys:
+        edges = list(operators.face_trace(mesh, face))
+        vertex_key_pairs: list[Tuple[VertexKey, VertexKey]] = []
+
+        for i in range(len(edges) - 1):
+            edge_node_1 = mesh.edge_nodes[edges[i]]
+            edge_node_2 = mesh.edge_nodes[edges[i + 1]]
+            vertex_key_pairs.append(
+                (edge_node_1.vertex_1_key, edge_node_1.vertex_2_key)
+                if edge_node_1.vertex_2_key
+                in (edge_node_2.vertex_1_key, edge_node_2.vertex_2_key)
+                else (edge_node_1.vertex_2_key, edge_node_1.vertex_1_key)
+            )
+
+        vertex_keys = [pair[0] for pair in vertex_key_pairs] + [
+            vertex_key_pairs[-1][-1]
+        ]
+
+        indices = [(vertex_index_map[vertex_key]) for vertex_key in vertex_keys]
+        obj_faces.append(indices)
+        
+    new_mesh = bpy.data.meshes.new('new_mesh')
+    new_mesh.from_pydata(obj_vertices, [], obj_faces)
+    new_mesh.update()
+    return new_mesh
 
 class TOPMOD_OT_triangular_subdivision(bpy.types.Operator):
     bl_idname = "mesh.triangular_subdivision"
@@ -196,9 +285,106 @@ class TOPMOD_OT_triangular_subdivision(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class TOPMOD_OT_delete_edge(bpy.types.Operator):
-    bl_idname = "mesh.topmod_delete_edge"
-    bl_label = "Delete Edge"
+class TOPMOD_OT_delete_edge_DCEL(bpy.types.Operator):
+    bl_idname = "mesh.topmod_delete_edge_dcel"
+    bl_label = "Delete Edge (DCEL)"
+    bl_description = "This operator deletes edges that are selected in the viewport."
+    bl_options = {"REGISTER"}
+
+    from bmesh.types import BMVert, BMFace, BMesh
+    
+    @classmethod  
+    def poll(cls, context):
+        if (context.active_object is None):
+            return False
+        return context.active_object.mode == 'EDIT'
+
+    def execute(self, context):
+        from pytopmod.core.dcel import operators
+        mesh, bm, edges = bpy_to_dcel()
+        print("DCEL mesh created")
+        print(mesh)
+        e = [e for e in bmesh.from_edit_mesh(context.object.data).edges if e.select][0]
+        print("edge found")
+        operators.delete_edge(mesh,edges[e.index])
+        print("edge deleted")
+        mesh = dcel_to_bpy(mesh)
+        print("bpy mesh created")
+        bpy.ops.object.editmode_toggle()
+        context.object.data = mesh
+        bpy.ops.object.editmode_toggle()
+        bpy.ops.mesh.select_all(action='DESELECT')
+        return {'FINISHED'}
+
+
+class TOPMOD_OT_insert_edge_DCEL(bpy.types.Operator):
+    bl_idname = "mesh.topmod_insert_edge_dcel"
+    bl_label = "Insert Edge (DCEL)"
+    bl_description = "This operator inserts edges between selected corners in viewport."
+    bl_options = {"REGISTER"}
+
+    v1: bpy.props.IntProperty(name = "v1", description = "Index of first vertex",default=-1)
+    v2: bpy.props.IntProperty(name = "v2", description = "Index of second vertex",default=-1)
+    e1: bpy.props.IntProperty(name = "f1", description = "Index of first face",default=-1)
+    e2: bpy.props.IntProperty(name = "f2", description = "Index of second face",default=-1)
+    
+    from bmesh.types import BMVert, BMFace, BMesh
+    
+    @classmethod  
+    def poll(cls, context):
+        if (context.active_object is None):
+            return False
+        return context.active_object.mode == 'EDIT'
+
+    def execute(self, context):
+        from pytopmod.core.dcel import operators
+        mesh, bm, edges = bpy_to_dcel()
+        operators.insert_edge(mesh, self.v1, self.f , self.v2, self.f2)
+
+        mesh = dcel_to_bpy(mesh)
+        bpy.ops.object.editmode_toggle()
+        context.object.data = mesh
+        bpy.ops.object.editmode_toggle()
+        bpy.ops.mesh.select_all(action='DESELECT')
+        return {'FINISHED'}
+
+    def modal(self, context, event):
+        self.invoked = True
+        if self.v1 != -1 and self.v2 != -1 and self.f1 != -1 and self.f2 != -1:
+            return self.execute(context)
+        if not event.alt:
+            if event.type in {'ONE', 'TWO', 'THREE', 'MOUSEMOVE', 'LEFTMOUSE','RIGHTMOUSE','WHEELDOWNMOUSE','MIDDLEMOUSE', 'WHEELUPMOUSE'}:
+                return {'PASS_THROUGH'}
+        if event.alt and event.type == 'ONE':  # Apply
+            self.v1 = [v for v in bmesh.from_edit_mesh(context.object.data).verts if v.select][0].index
+            return {'PASS_THROUGH'}
+        elif event.alt and event.type == 'TWO':  # Apply
+            self.e1 = [e for e in bmesh.from_edit_mesh(context.object.data).faces if e.select][0].index
+            return {'PASS_THROUGH'}
+        elif event.alt and event.type == 'THREE':  # Apply
+            self.v2 = [v for v in bmesh.from_edit_mesh(context.object.data).verts if v.select][0].index
+            return {'PASS_THROUGH'}
+        elif event.alt and event.type == 'FOUR':  # Apply
+            self.e2 = [e for e in bmesh.from_edit_mesh(context.object.data).faces if e.select][0].index
+            return {'PASS_THROUGH'}
+        elif event.type == 'ESC':
+            return {'CANCELLED'}
+        else:
+            return {'PASS_THROUGH'}
+        
+        return {'RUNNING_MODAL'}
+
+    def invoke(self, context, event):
+        self.v1 = -1
+        self.v2 = -1
+        self.e1 = -1
+        self.e2 = -1
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+class TOPMOD_OT_delete_edge_DLFL(bpy.types.Operator):
+    bl_idname = "mesh.topmod_delete_edge_dlfl"
+    bl_label = "Delete Edge (DLFL)"
     bl_description = "This operator deletes edges that are selected in the viewport."
     bl_options = {"REGISTER"}
 
@@ -260,9 +446,9 @@ class TOPMOD_OT_delete_edge(bpy.types.Operator):
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
-class TOPMOD_OT_insert_edge(bpy.types.Operator):
-    bl_idname = "mesh.topmod_insert_edge"
-    bl_label = "Insert Edge"
+class TOPMOD_OT_insert_edge_DLFL(bpy.types.Operator):
+    bl_idname = "mesh.topmod_insert_edge_dlfl"
+    bl_label = "Insert Edge (DLFL)"
     bl_description = "This operator inserts edges between selected corners in viewport."
     bl_options = {"REGISTER"}
 
@@ -346,8 +532,10 @@ class TOPMOD_PT_panel(bpy.types.Panel):
         layout.operator(TOPMOD_OT_triangular_subdivision.bl_idname)
         
         layout.label(text="Topology Changing Operations")
-        layout.operator(TOPMOD_OT_delete_edge.bl_idname)
-        layout.operator(TOPMOD_OT_insert_edge.bl_idname)
+        layout.operator(TOPMOD_OT_delete_edge_DLFL.bl_idname)
+        layout.operator(TOPMOD_OT_insert_edge_DLFL.bl_idname)
+        layout.operator(TOPMOD_OT_delete_edge_DCEL.bl_idname)
+        layout.operator(TOPMOD_OT_insert_edge_DCEL.bl_idname)
 
         layout.label(text="To insert/delete edges you need to define the following:")
         layout.label(text="v1: select a vertex in edit mode and press ALT+1")
@@ -382,8 +570,10 @@ class TOPMOD_MT_PIE(bpy.types.Menu):
         column.operator("mesh.topmod_delete_edge", text="Delete Edge", icon='MESH_TORUS')
 
 classes = (TOPMOD_OT_triangular_subdivision,
-           TOPMOD_OT_delete_edge,
-           TOPMOD_OT_insert_edge,
+           TOPMOD_OT_delete_edge_DLFL,
+           TOPMOD_OT_insert_edge_DLFL,
+           TOPMOD_OT_delete_edge_DCEL,
+           TOPMOD_OT_insert_edge_DCEL,
            TOPMOD_PT_panel,
            TOPMOD_MT_PIE,
            TOPMOD_MT_PIE_delete_selection)
