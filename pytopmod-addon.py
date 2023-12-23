@@ -102,15 +102,15 @@ def pull_and_import_module(module_url, module_name, package_name=None, global_na
     os.system("git clone https://github.com/topmod-org/pytopmod-core.git")
     shutil.copytree(os.path.join(sys.prefix,"lib","site-packages","pytopmod-core","src","pytopmod"), os.path.join(sys.prefix,"lib","site-packages","pytopmod"))
 
-def bpyToDLFL(bm = None):
+def bpy_to_dlfl(bm = None):
     """
     Creates a DLFLMesh from the selected object in the viewport
     :return mesh: DLFLMesh.
     :return bm: BMesh object of the selected object.
-    :return verts: Dictionary of BMesh vertices to DLFL vertex_key.
-    :return faces: Dictionary of BMesh faces to DLFL face_key.
+    :return verts: Dictionary of vertex indices to DLFL vertex_key.
+    :return faces: Dictionary of faces indices to DLFL face_key.
     """
-    from pytopmod.core.dlfl.mesh import DLFLMesh
+    from pytopmod.core.dlfl import mesh as dlfl_mesh
 
     bpy_object = bpy.context.object
     bpy_mesh = bpy.context.object.data
@@ -122,7 +122,7 @@ def bpyToDLFL(bm = None):
             bm.from_mesh(bpy_mesh)
     
 
-    mesh = DLFLMesh()
+    mesh = dlfl_mesh.Mesh()
     bm.verts.ensure_lookup_table()
     
     faces = {}
@@ -149,10 +149,10 @@ def bpyToDLFL(bm = None):
 
     return mesh, bm, verts, faces
 
-def DLFLtoBPY(mesh):
+def dlfl_to_bpy(mesh):
     """
-    Creates a Blender Mesh Data from the DLFLMesh mesh
-    :param mesh: DLFLMesh.
+    Creates a Blender Mesh Data from the DLFL mesh 
+    :param mesh: DLFL mesh.
     :return new_mesh: Blender Mesh Data.
     """
     vertex_index_map = {}
@@ -187,11 +187,11 @@ class TOPMOD_OT_triangular_subdivision(bpy.types.Operator):
     
     def execute(self, context):
         from pytopmod.core.dlfl.operations import subdivision
-        mesh, bm, _, _ = bpyToDLFL()
+        mesh, bm, _, _ = bpy_to_dlfl()
         for face in list(mesh.face_keys):
             subdivision.triangulate_face(mesh, face)
         bm.free()
-        mesh = DLFLtoBPY(mesh)
+        mesh = dlfl_to_bpy(mesh)
         context.object.data = mesh
         return {"FINISHED"}
 
@@ -217,10 +217,10 @@ class TOPMOD_OT_delete_edge(bpy.types.Operator):
 
     def execute(self, context):
         from pytopmod.core.dlfl import operators
-        mesh, bm, verts, faces = bpyToDLFL()
+        mesh, bm, verts, faces = bpy_to_dlfl()
         operators.delete_edge(mesh,verts[self.v1], faces[self.f1] , verts[self.v2], faces[self.f2])
 
-        mesh = DLFLtoBPY(mesh)
+        mesh = dlfl_to_bpy(mesh)
         bpy.ops.object.editmode_toggle()
         context.object.data = mesh
         bpy.ops.object.editmode_toggle()
@@ -253,6 +253,10 @@ class TOPMOD_OT_delete_edge(bpy.types.Operator):
         
         return {'RUNNING_MODAL'}
     def invoke(self, context, event):
+        self.v1 = -1
+        self.v2 = -1
+        self.f1 = -1
+        self.f2 = -1
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
@@ -277,10 +281,10 @@ class TOPMOD_OT_insert_edge(bpy.types.Operator):
 
     def execute(self, context):
         from pytopmod.core.dlfl import operators
-        mesh, bm, verts, faces = bpyToDLFL()
+        mesh, bm, verts, faces = bpy_to_dlfl()
         operators.insert_edge(mesh,verts[self.v1], faces[self.f1] , verts[self.v2], faces[self.f2])
 
-        mesh = DLFLtoBPY(mesh)
+        mesh = dlfl_to_bpy(mesh)
         bpy.ops.object.editmode_toggle()
         context.object.data = mesh
         bpy.ops.object.editmode_toggle()
@@ -314,6 +318,10 @@ class TOPMOD_OT_insert_edge(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def invoke(self, context, event):
+        self.v1 = -1
+        self.v2 = -1
+        self.f1 = -1
+        self.f2 = -1
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
