@@ -229,6 +229,8 @@ class TOPMOD_OT_delete_edge(bpy.types.Operator):
 
     def modal(self, context, event):
         self.invoked = True
+        if self.v1 != -1 and self.v2 != -1 and self.f1 != -1 and self.f2 != -1: 
+            return self.execute(context)
         if not event.alt:
             if event.type in {'ONE', 'TWO', 'THREE', 'MOUSEMOVE', 'LEFTMOUSE','RIGHTMOUSE','WHEELDOWNMOUSE','MIDDLEMOUSE', 'WHEELUPMOUSE'}:
                 return {'PASS_THROUGH'}
@@ -244,11 +246,12 @@ class TOPMOD_OT_delete_edge(bpy.types.Operator):
         elif event.alt and event.type == 'FOUR':  # Apply
             self.f2 = [f for f in bmesh.from_edit_mesh(context.object.data).faces if f.select][0].index
             return {'PASS_THROUGH'}
-        elif event.type == 'SPACE':
-            return self.execute(context)
+        elif event.type == 'ESC':
+            return {'CANCELLED'}
+        else:
+            return {'PASS_THROUGH'}
         
         return {'RUNNING_MODAL'}
-
     def invoke(self, context, event):
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
@@ -286,6 +289,8 @@ class TOPMOD_OT_insert_edge(bpy.types.Operator):
 
     def modal(self, context, event):
         self.invoked = True
+        if self.v1 != -1 and self.v2 != -1 and self.f1 != -1 and self.f2 != -1:
+            return self.execute(context)
         if not event.alt:
             if event.type in {'ONE', 'TWO', 'THREE', 'MOUSEMOVE', 'LEFTMOUSE','RIGHTMOUSE','WHEELDOWNMOUSE','MIDDLEMOUSE', 'WHEELUPMOUSE'}:
                 return {'PASS_THROUGH'}
@@ -301,10 +306,10 @@ class TOPMOD_OT_insert_edge(bpy.types.Operator):
         elif event.alt and event.type == 'FOUR':  # Apply
             self.f2 = [f for f in bmesh.from_edit_mesh(context.object.data).faces if f.select][0].index
             return {'PASS_THROUGH'}
-        elif event.type == 'SPACE':
-            return self.execute(context)
         elif event.type == 'ESC':
             return {'CANCELLED'}
+        else:
+            return {'PASS_THROUGH'}
         
         return {'RUNNING_MODAL'}
 
@@ -328,17 +333,19 @@ class TOPMOD_PT_panel(bpy.types.Panel):
                 layout.label(text=f"pytopmod module has been installed and imported")
             else:
                 layout.label(text=f"{dependency.module}")
+                
+        layout.label(text="Subdivision Operations")
         layout.operator(TOPMOD_OT_triangular_subdivision.bl_idname)
         
+        layout.label(text="Topology Changing Operations")
         layout.operator(TOPMOD_OT_delete_edge.bl_idname)
         layout.operator(TOPMOD_OT_insert_edge.bl_idname)
 
-        layout.label(text="To insert/delete edges you need to define v1, f1, v2, f2 after pressing the button")
-        layout.label(text="To define v1, select a vertex in edit mode and press ALT+1")
-        layout.label(text="To define f1, select a face in edit mode and press ALT+2")
-        layout.label(text="To define v2, select a vertex in edit mode and press ALT+3")
-        layout.label(text="To define f2, select a face in edit mode and press ALT+4")
-        layout.label(text="Press space to execute")
+        layout.label(text="To insert/delete edges you need to define the following:")
+        layout.label(text="v1: select a vertex in edit mode and press ALT+1")
+        layout.label(text="f1: select a face in edit mode and press ALT+2")
+        layout.label(text="v2: select a vertex in edit mode and press ALT+3")
+        layout.label(text="f2: select a face in edit mode and press ALT+4")
         
       
 

@@ -23,6 +23,8 @@ Selection starts after pressing the button, select using the edit mode selection
 - ```v2```: ALT+3
 - ```f2```: ALT+4
 
+after selections are done operations will be applied automatically.
+
 ### ```Insert Edge```
 In edit mode you can insert edges, to insert and edge you need choose a corner pair, i.e. two pairs of vertex and face. ```((v1,f1), (v2,f2))```
 
@@ -32,3 +34,5 @@ Selection starts after pressing the button, select using the edit mode selection
 - ```f1```: ALT+2
 - ```v2```: ALT+3
 - ```f2```: ALT+4
+
+after selections are done operations will be applied automatically.
